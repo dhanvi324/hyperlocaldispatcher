@@ -109,11 +109,12 @@ riderrouter.put("/respond-order/:orderId", verifyToken("rider"), async (req, res
 
       const io = req.app.get("io");
       if (io) {
-        // Notify shop room of assignment
-        io.to(`shop:${order.shopId}`).emit("order:status-changed", populatedOrder);
-        // Tell all other requestedRiders (in original list) to remove this order
-        // We cleared requestedRiders atomically, so emit order:removed to shop room and all rider rooms
-        io.to(`shop:${order.shopId}`).emit("order:accepted", { orderId: order._id, acceptedBy: req.user.userId });
+        // Notify shop room, admin room, and all clients of assignment
+        io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", populatedOrder);
+        io.emit("order:status-changed", populatedOrder);
+        // Tell all other requestedRiders to remove this order
+        io.to(`shop:${order.shopId}`).to("admin-room").emit("order:accepted", { orderId: order._id, acceptedBy: req.user.userId });
+        io.emit("order:accepted", { orderId: order._id, acceptedBy: req.user.userId });
       }
 
       return res.json({ success: true, order: populatedOrder });
@@ -142,7 +143,7 @@ riderrouter.put("/respond-order/:orderId", verifyToken("rider"), async (req, res
 riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res) => {
   try {
     const { status } = req.body;
-    const validStatuses = ["Accepted", "OutForDelivery", "Delivered"];
+    const validStatuses = ["Accepted", "OutForDelivery", "dispatched", "Dispatched", "Delivered", "delivered"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ message: `Invalid status. Must be one of: ${validStatuses.join(", ")}` });
     }
@@ -157,7 +158,10 @@ riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res
     const prevStatus = order.status;
     order.status = status;
 
-    if (status === "Delivered" && prevStatus !== "Delivered") {
+    const isDelivered = status?.toLowerCase() === "delivered";
+    const wasDelivered = prevStatus?.toLowerCase() === "delivered";
+
+    if (isDelivered && !wasDelivered) {
       const riderId = req.user.userId;
       await RiderModel.findOneAndUpdate({ userId: riderId }, { isAvailable: true });
 
@@ -216,7 +220,8 @@ riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res
       );
     }
 
-    if (status === "OutForDelivery" && order.assignedRider) {
+    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
+    if (isDispatched && order.assignedRider) {
       await RiderModel.findOneAndUpdate({ userId: order.assignedRider }, { isAvailable: false });
     }
 
@@ -230,9 +235,10 @@ riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res
 
     const io = req.app.get("io");
     if (io) {
-      io.to(`shop:${order.shopId}`).emit("order:status-changed", populatedOrder);
-      // Also emit to rider's personal room
+      io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", populatedOrder);
+      // Also emit to rider's personal room and all clients
       io.to(`rider:${req.user.userId}`).emit("order:status-changed", populatedOrder);
+      io.emit("order:status-changed", populatedOrder);
     }
 
     res.json(populatedOrder);

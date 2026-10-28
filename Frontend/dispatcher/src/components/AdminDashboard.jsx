@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import io from "socket.io-client";
 import { getAdminStats } from "../api";
 import { 
   Users, 
@@ -44,7 +45,30 @@ const AdminDashboard = () => {
   useEffect(() => {
     fetchDashboardStats();
     const interval = setInterval(fetchDashboardStats, 10000);
-    return () => clearInterval(interval);
+
+    const socketUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
+    const socket = io(socketUrl);
+
+    socket.on("connect", () => {
+      socket.emit("join-admin");
+    });
+
+    socket.on("order:status-changed", () => {
+      fetchDashboardStats();
+    });
+
+    socket.on("order:new", () => {
+      fetchDashboardStats();
+    });
+
+    socket.on("order:accepted", () => {
+      fetchDashboardStats();
+    });
+
+    return () => {
+      clearInterval(interval);
+      socket.disconnect();
+    };
   }, []);
 
   const getPercentage = (part, total) => {

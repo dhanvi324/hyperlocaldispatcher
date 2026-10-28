@@ -268,13 +268,18 @@ shopOwnerRouter.post("/orders", verifyToken("shop_owner"), async (req, res) => {
       return res.status(400).json({ message: "Customer location (latitude and longitude) is required. Please pin the location on the map." });
     }
 
-    // Broadcast to ALL approved riders in the shop (not just available)
+    // Broadcast to ALL approved and eligible riders in the shop
     const allApprovedRiders = await RiderModel.find({
       shopId: shop._id,
       approvalStatus: "Approved",
-    }).select("userId");
+    }).populate({
+      path: "userId",
+      match: { isBlocked: false, isActive: true },
+      select: "_id",
+    });
 
-    const riderUserIds = allApprovedRiders.map((r) => r.userId);
+    const eligibleRiders = allApprovedRiders.filter((r) => r.userId != null);
+    const riderUserIds = eligibleRiders.map((r) => r.userId._id || r.userId);
 
     const fullAddress = buildFullAddress(address);
 
@@ -299,6 +304,8 @@ shopOwnerRouter.post("/orders", verifyToken("shop_owner"), async (req, res) => {
     if (io) {
       // Emit to the shop room (shop owner sees it)
       io.to(`shop:${shop._id}`).emit("order:new", populatedOrder);
+      // Emit to admin room so admin dashboard syncs in real time
+      io.to("admin-room").emit("order:new", populatedOrder);
       
       // Emit to each individual rider's personal room
       riderUserIds.forEach((riderId) => {
@@ -409,8 +416,8 @@ shopOwnerRouter.get("/stats", verifyToken("shop_owner"), async (req, res) => {
       pendingRiders,
     ] = await Promise.all([
       OrderTypeModel.countDocuments({ shopId: shop._id }),
-      OrderTypeModel.countDocuments({ shopId: shop._id, status: "Delivered" }),
-      OrderTypeModel.countDocuments({ shopId: shop._id, status: { $nin: ["Delivered", "Cancelled"] } }),
+      OrderTypeModel.countDocuments({ shopId: shop._id, status: { $in: ["Delivered", "delivered"] } }),
+      OrderTypeModel.countDocuments({ shopId: shop._id, status: { $nin: ["Delivered", "delivered", "Cancelled", "cancelled"] } }),
       RiderModel.countDocuments({ shopId: shop._id, approvalStatus: "Approved" }),
       RiderModel.countDocuments({ shopId: shop._id, approvalStatus: "Pending" }),
     ]);
@@ -459,7 +466,7 @@ shopOwnerRouter.get("/rider-analytics", verifyToken("shop_owner"), async (req, r
       const completedOrders = await OrderTypeModel.find({
         shopId: shop._id,
         assignedRider: riderId,
-        status: "Delivered"
+        status: { $in: ["Delivered", "delivered"] }
       });
 
       // 2. Fetch Avg Delivery Time (in minutes)
@@ -503,7 +510,7 @@ shopOwnerRouter.get("/rider-analytics", verifyToken("shop_owner"), async (req, r
       const acceptedCount = await OrderTypeModel.countDocuments({
         shopId: shop._id,
         assignedRider: riderId,
-        status: { $in: ["Assigned", "Accepted", "OutForDelivery", "Delivered"] }
+        status: { $in: ["Assigned", "Accepted", "OutForDelivery", "dispatched", "Dispatched", "Delivered", "delivered"] }
       });
       const acceptanceRate = opportunities > 0 ? Math.round((acceptedCount / opportunities) * 100) : 100;
 

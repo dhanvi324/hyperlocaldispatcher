@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import io from "socket.io-client";
 import API from "../api";
 import { toast } from "react-hot-toast";
 import { 
@@ -25,12 +26,13 @@ import {
   Package
 } from "lucide-react";
 
-const STATUS_OPTIONS = ["pending", "assigned", "accepted", "outfordelivery", "delivered"];
+const STATUS_OPTIONS = ["pending", "assigned", "accepted", "dispatched", "outfordelivery", "delivered"];
 
 const getStatusSelectClass = (status) => {
   const base = "text-[9px] font-extrabold uppercase tracking-wider px-2 py-1 rounded-lg border cursor-pointer outline-none focus:ring-2 focus:ring-blue-100 ";
   const map = {
     pending: "bg-amber-50 text-amber-700 border-amber-200",
+    dispatched: "bg-purple-50 text-purple-700 border-purple-200",
     outfordelivery: "bg-purple-50 text-purple-700 border-purple-200",
     delivered: "bg-green-50 text-green-700 border-green-200",
     assigned: "bg-blue-50 text-blue-700 border-blue-200",
@@ -98,7 +100,34 @@ const Orders = () => {
       fetchOrders();
       fetchRiders();
     }, 5000);
-    return () => clearInterval(interval);
+
+    const socketUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
+    const socket = io(socketUrl);
+
+    socket.on("connect", () => {
+      socket.emit("join-admin");
+    });
+
+    socket.on("order:status-changed", () => {
+      fetchOrders();
+    });
+
+    socket.on("order:new", () => {
+      fetchOrders();
+    });
+
+    socket.on("order:accepted", () => {
+      fetchOrders();
+    });
+
+    socket.on("order:deleted", () => {
+      fetchOrders();
+    });
+
+    return () => {
+      clearInterval(interval);
+      socket.disconnect();
+    };
   }, []);
 
   const fetchOrders = async () => {
@@ -401,7 +430,7 @@ const Orders = () => {
 
         {/* Tab filters */}
         <div className="flex flex-wrap gap-1.5 w-full lg:w-auto">
-          {["all", "pending", "assigned", "accepted", "outfordelivery"].map((tab) => (
+          {["all", "pending", "assigned", "accepted", "dispatched", "outfordelivery"].map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -772,16 +801,16 @@ const Orders = () => {
             </div>
           </div>
 
-          {/* Column 3: OutForDelivery (In-Transit) Orders */}
+          {/* Column 3: OutForDelivery (In-Transit) / Dispatched Orders */}
           <div className="bg-slate-50 p-4 rounded-3xl border border-slate-200/50 space-y-4 h-fit min-h-[500px]">
             <div className="flex justify-between items-center px-2">
-              <span className="font-black text-xs uppercase tracking-wider text-slate-450">Out For Delivery</span>
+              <span className="font-black text-xs uppercase tracking-wider text-slate-450">Out For Delivery / Dispatched</span>
               <span className="h-5 px-2 bg-purple-100 text-purple-800 border border-purple-200 text-[10px] font-bold rounded-full flex items-center justify-center">
-                {filteredOrders.filter(o => o.status === "outfordelivery").length}
+                {filteredOrders.filter(o => ["outfordelivery", "dispatched"].includes(o.status?.toLowerCase())).length}
               </span>
             </div>
             <div className="space-y-3">
-              {filteredOrders.filter(o => o.status === "outfordelivery").map(order => (
+              {filteredOrders.filter(o => ["outfordelivery", "dispatched"].includes(o.status?.toLowerCase())).map(order => (
                 <div key={order._id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm space-y-3 hover:shadow transition-shadow">
                   <div className="flex justify-between items-start gap-1.5">
                     <h4 className="font-extrabold text-slate-800 text-xs truncate">{order.customerName}</h4>
@@ -808,7 +837,7 @@ const Orders = () => {
                   </div>
                 </div>
               ))}
-              {filteredOrders.filter(o => o.status === "outfordelivery").length === 0 && (
+              {filteredOrders.filter(o => ["outfordelivery", "dispatched"].includes(o.status?.toLowerCase())).length === 0 && (
                 <div className="text-center py-12 text-slate-450 text-[10px] font-semibold">No active deliveries in transit</div>
               )}
             </div>

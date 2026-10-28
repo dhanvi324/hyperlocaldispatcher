@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import io from "socket.io-client";
 import useShopStore from "../store/shopstore";
 import { 
   Package, 
@@ -24,6 +25,26 @@ const ShopOrders = () => {
   useEffect(() => {
     fetchOrders({ status: statusFilter, search: searchQuery });
     fetchRiders();
+
+    const socketUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
+    const socket = io(socketUrl);
+
+    socket.on("order:status-changed", () => {
+      fetchOrders({ status: statusFilter, search: searchQuery });
+    });
+    socket.on("order:new", () => {
+      fetchOrders({ status: statusFilter, search: searchQuery });
+    });
+    socket.on("order:accepted", () => {
+      fetchOrders({ status: statusFilter, search: searchQuery });
+    });
+    socket.on("order:deleted", () => {
+      fetchOrders({ status: statusFilter, search: searchQuery });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [statusFilter, searchQuery]);
 
   const handleAssignSubmit = async (orderId) => {
@@ -93,6 +114,7 @@ const ShopOrders = () => {
               <option value="Pending">Pending</option>
               <option value="Assigned">Assigned</option>
               <option value="Accepted">Accepted</option>
+              <option value="dispatched">Dispatched</option>
               <option value="OutForDelivery">Out For Delivery</option>
               <option value="Delivered">Delivered</option>
               <option value="Cancelled">Cancelled</option>
@@ -130,11 +152,19 @@ const ShopOrders = () => {
                 {orders.map((order) => {
                   const statusColors = {
                     Pending: "bg-blue-50 text-blue-600 border-blue-100",
+                    pending: "bg-blue-50 text-blue-600 border-blue-100",
                     Assigned: "bg-purple-50 text-purple-600 border-purple-100",
+                    assigned: "bg-purple-50 text-purple-600 border-purple-100",
                     Accepted: "bg-indigo-50 text-indigo-600 border-indigo-100",
+                    accepted: "bg-indigo-50 text-indigo-600 border-indigo-100",
                     OutForDelivery: "bg-amber-50 text-amber-700 border-amber-100",
+                    outfordelivery: "bg-amber-50 text-amber-700 border-amber-100",
+                    dispatched: "bg-amber-50 text-amber-700 border-amber-100",
+                    Dispatched: "bg-amber-50 text-amber-700 border-amber-100",
                     Delivered: "bg-green-50 text-green-700 border-green-100",
+                    delivered: "bg-green-50 text-green-700 border-green-100",
                     Cancelled: "bg-slate-50 text-slate-500 border-slate-100",
+                    cancelled: "bg-slate-50 text-slate-500 border-slate-100",
                   };
 
                   const fullAddr = order.address 

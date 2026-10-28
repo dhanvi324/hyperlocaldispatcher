@@ -93,6 +93,7 @@ const MyOrders = () => {
       if (updatedOrder.assignedRider === user._id || updatedOrder.assignedRider?._id === user._id) {
         fetchOrders();
       }
+      fetchAvailableOrders();
     });
 
     return () => {
@@ -105,7 +106,7 @@ const MyOrders = () => {
       await API.put(`/api/rider/respond-order/${orderId}`, { action });
       if (action === "accept") {
         toast.success("Order accepted! Shipments added to assignments.");
-        console.log(`[MY ORDERS] Order ${orderId} accepted. No tracking until OutForDelivery.`);
+        console.log(`[MY ORDERS] Order ${orderId} accepted. No tracking until dispatched.`);
       } else {
         toast.error("Order request rejected.");
       }
@@ -119,13 +120,14 @@ const MyOrders = () => {
   const updateStatus = async (orderId, status) => {
     try {
       await API.put(`/api/rider/update-status/${orderId}`, { status });
-      toast.success(`Shipment marked as ${status === "OutForDelivery" ? "Out For Delivery" : status}!`);
+      const displayStatus = status === "dispatched" ? "Dispatched" : (status === "delivered" ? "Delivered" : status);
+      toast.success(`Shipment marked as ${displayStatus}!`);
 
       // Geolocation live tracking reaction
-      if (status === "OutForDelivery") {
-        console.log(`[MY ORDERS] Order ${orderId} outfordelivery (Start Delivery clicked). Starting location tracking.`);
+      if (["outfordelivery", "dispatched"].includes(status?.toLowerCase())) {
+        console.log(`[MY ORDERS] Order ${orderId} dispatched (Start Delivery clicked). Starting location tracking.`);
         startTracking(orderId);
-      } else if (status === "Delivered") {
+      } else if (status?.toLowerCase() === "delivered") {
         console.log(`[MY ORDERS] Order ${orderId} delivered. Stopping location tracking.`);
         await stopTracking();
       }
@@ -210,7 +212,7 @@ const MyOrders = () => {
                     onClick={() => respondOrder(order._id, "accept")}
                     className="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider shadow-sm flex items-center gap-1 cursor-pointer"
                   >
-                    <ThumbsUp className="w-3.5 h-3.5" /> Accept
+                    <ThumbsUp className="w-3.5 h-3.5" /> Accept Order
                   </button>
                   <button
                     onClick={() => respondOrder(order._id, "reject")}
@@ -249,11 +251,11 @@ const MyOrders = () => {
                     <h3 className="font-extrabold text-slate-800 text-sm">{order.customerName}</h3>
                     <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase border
                       ${order.status === "Pending" ? "bg-amber-50 text-amber-700 border-amber-100" : ""}
-                      ${order.status === "OutForDelivery" ? "bg-purple-50 text-purple-700 border-purple-100" : ""}
-                      ${order.status === "Delivered" ? "bg-green-50 text-green-700 border-green-100" : ""}
+                      ${["outfordelivery", "dispatched"].includes(order.status?.toLowerCase()) ? "bg-purple-50 text-purple-700 border-purple-100" : ""}
+                      ${order.status?.toLowerCase() === "delivered" ? "bg-green-50 text-green-700 border-green-100" : ""}
                       ${["Assigned", "Accepted"].includes(order.status) ? "bg-blue-50 text-blue-700 border-blue-100" : ""}
                     `}>
-                      {order.status === "OutForDelivery" ? "Out For Delivery" : order.status}
+                      {order.status?.toLowerCase() === "dispatched" ? "Dispatched" : (order.status === "OutForDelivery" ? "Out For Delivery" : order.status)}
                     </span>
                   </div>
 
@@ -290,20 +292,20 @@ const MyOrders = () => {
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2 mt-6 border-t border-slate-50 pt-4 select-none">
-                  {order.status === "Accepted" && (
+                  {order.status?.toLowerCase() === "accepted" && (
                     <button
-                      onClick={() => updateStatus(order._id, "OutForDelivery")}
+                      onClick={() => updateStatus(order._id, "dispatched")}
                       className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm"
                     >
                       <Compass className="w-3.5 h-3.5" /> Start Delivery
                     </button>
                   )}
-                  {order.status === "OutForDelivery" && (
+                  {["outfordelivery", "dispatched"].includes(order.status?.toLowerCase()) && (
                     <button
-                      onClick={() => updateStatus(order._id, "Delivered")}
+                      onClick={() => updateStatus(order._id, "delivered")}
                       className="bg-green-650 hover:bg-green-700 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm"
                     >
-                      <CheckCircle className="w-3.5 h-3.5" /> Mark Delivered
+                      <CheckCircle className="w-3.5 h-3.5" /> Mark as Delivered
                     </button>
                   )}
                   <a

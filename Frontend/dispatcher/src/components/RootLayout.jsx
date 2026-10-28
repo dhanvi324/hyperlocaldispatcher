@@ -57,7 +57,7 @@ const RootLayout = () => {
         const res = await API.get("/api/rider/my-orders");
         if (!isSubscribed) return;
 
-        const dispatchedOrder = res.data.find(order => order.status?.toLowerCase() === "outfordelivery");
+        const dispatchedOrder = res.data.find(order => ["outfordelivery", "dispatched"].includes(order.status?.toLowerCase()));
 
         if (dispatchedOrder) {
           console.log(`[ROOT TRACKING MANAGER] Dispatched order found: ${dispatchedOrder._id}. Resuming tracking.`);

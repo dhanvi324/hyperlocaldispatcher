@@ -245,8 +245,11 @@ router.put("/status/:id", verifyToken("admin", "shop_owner", "rider"), async (re
     const prevStatus = order.status;
     order.status = status;
 
+    const isDelivered = status?.toLowerCase() === "delivered";
+    const wasDelivered = prevStatus?.toLowerCase() === "delivered";
+
     // DELIVERED logic
-    if (status === "Delivered" && prevStatus !== "Delivered") {
+    if (isDelivered && !wasDelivered) {
       const riderId = order.assignedRider || req.user.userId;
 
       // Mark rider available
@@ -294,14 +297,18 @@ router.put("/status/:id", verifyToken("admin", "shop_owner", "rider"), async (re
       await RiderModel.findOneAndUpdate({ userId: riderId }, { $inc: { earnings: calculatedAmount } });
     }
 
-    if (status === "OutForDelivery" && order.assignedRider) {
+    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
+    if (isDispatched && order.assignedRider) {
       await RiderModel.findOneAndUpdate({ userId: order.assignedRider }, { isAvailable: false });
     }
 
     await order.save();
 
     const io = req.app.get("io");
-    if (io) io.to(`shop:${order.shopId}`).emit("order:status-changed", order);
+    if (io) {
+      io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", order);
+      io.emit("order:status-changed", order);
+    }
 
     res.json({ success: true, order });
   } catch (err) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import io from "socket.io-client";
 import useAuthStore from "../store/authstore";
 import useTrackingStore from "../store/trackingstore";
 import API from "../api";
@@ -35,13 +36,34 @@ const RiderDashboard = () => {
   const isTracking = useTrackingStore((state) => state.isTracking);
 
   useEffect(() => {
-    if (user?._id) {
+    if (!user?._id) return;
+
+    fetchRiderData();
+    const interval = setInterval(fetchRiderData, 5000);
+
+    const socketUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
+    const socket = io(socketUrl);
+
+    socket.on("connect", () => {
+      socket.emit("rider-join-personal", user._id);
+    });
+
+    socket.on("order:status-changed", () => {
       fetchRiderData();
-      const interval = setInterval(fetchRiderData, 5000);
-      return () => {
-        clearInterval(interval);
-      };
-    }
+    });
+
+    socket.on("order:accepted", () => {
+      fetchRiderData();
+    });
+
+    socket.on("order:new", () => {
+      fetchRiderData();
+    });
+
+    return () => {
+      clearInterval(interval);
+      socket.disconnect();
+    };
   }, [user?._id]);
 
   const fetchRiderData = async () => {
@@ -50,8 +72,8 @@ const RiderDashboard = () => {
       const ordersRes = await API.get("/api/rider/my-orders");
       const assigned = ordersRes.data;
       
-      // Active orders are those with status "Accepted" or "OutForDelivery"
-      const active = assigned.find(o => o.status === "Accepted" || o.status === "OutForDelivery");
+      // Active orders are those with status "Accepted", "OutForDelivery", or "dispatched"
+      const active = assigned.find(o => ["accepted", "outfordelivery", "dispatched"].includes(o.status?.toLowerCase()));
       setActiveOrder(active);
 
       // 2. Fetch earnings info
@@ -72,13 +94,14 @@ const RiderDashboard = () => {
   const handleUpdateStatus = async (orderId, newStatus) => {
     try {
       await API.put(`/api/rider/update-status/${orderId}`, { status: newStatus });
-      toast.success(`Order status set to ${newStatus === "OutForDelivery" ? "Out For Delivery" : newStatus}!`);
+      const displayStatus = newStatus === "dispatched" ? "Dispatched" : (newStatus === "delivered" ? "Delivered" : (newStatus === "OutForDelivery" ? "Out For Delivery" : newStatus));
+      toast.success(`Order status set to ${displayStatus}!`);
 
       // Geolocation Live tracking reaction:
-      if (newStatus === "OutForDelivery") {
-        console.log(`[RIDER DASHBOARD] Order ${orderId} outfordelivery (Start Delivery clicked). Starting location tracking.`);
+      if (["outfordelivery", "dispatched"].includes(newStatus?.toLowerCase())) {
+        console.log(`[RIDER DASHBOARD] Order ${orderId} dispatched (Start Delivery clicked). Starting location tracking.`);
         startTracking(orderId);
-      } else if (newStatus === "Delivered") {
+      } else if (newStatus?.toLowerCase() === "delivered") {
         console.log(`[RIDER DASHBOARD] Order ${orderId} delivered. Stopping location tracking.`);
         await stopTracking();
       }
@@ -182,7 +205,7 @@ const RiderDashboard = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
               <div>
                 <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-250 rounded-full text-[10px] font-bold uppercase tracking-wider mr-2">
-                  {activeOrder.status === "OutForDelivery" ? "Out For Delivery" : activeOrder.status}
+                  {activeOrder.status?.toLowerCase() === "dispatched" ? "Dispatched" : (activeOrder.status === "OutForDelivery" ? "Out For Delivery" : activeOrder.status)}
                 </span>
                 <span className="font-mono text-[10px] text-slate-400 font-semibold">ID: #{activeOrder._id.slice(-8)}</span>
               </div>
@@ -224,20 +247,20 @@ const RiderDashboard = () => {
 
             {/* Actions */}
             <div className="flex flex-wrap gap-2 pt-4 border-t border-slate-100 select-none">
-              {activeOrder.status === "Accepted" && (
+              {activeOrder.status?.toLowerCase() === "accepted" && (
                 <button
-                  onClick={() => handleUpdateStatus(activeOrder._id, "OutForDelivery")}
+                  onClick={() => handleUpdateStatus(activeOrder._id, "dispatched")}
                   className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-md text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
                 >
                   <Compass className="w-4 h-4 animate-spin-slow" /> Start Delivery
                 </button>
               )}
-              {activeOrder.status === "OutForDelivery" && (
+              {["outfordelivery", "dispatched"].includes(activeOrder.status?.toLowerCase()) && (
                 <button
-                  onClick={() => handleUpdateStatus(activeOrder._id, "Delivered")}
+                  onClick={() => handleUpdateStatus(activeOrder._id, "delivered")}
                   className="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2.5 rounded-xl shadow-md text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer"
                 >
-                  <CheckCircle className="w-4 h-4" /> Complete Trip
+                  <CheckCircle className="w-4 h-4" /> Mark as Delivered
                 </button>
               )}
               <a

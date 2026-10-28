@@ -83,6 +83,11 @@ const ShopDashboard = () => {
       fetchOrders({ limit: 5 });
     });
 
+    socket.on("order:accepted", () => {
+      fetchStats();
+      fetchOrders({ limit: 5 });
+    });
+
     return () => {
       socket.disconnect();
     };

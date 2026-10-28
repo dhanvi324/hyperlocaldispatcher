@@ -288,7 +288,7 @@ body {
 
 .df-badge-pending { background: #fef3c7; color: #b45309; border-color: #fde68a; }
 .df-badge-assigned { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
-.df-badge-outfordelivery { background: #f3e8ff; color: #7c3aed; border-color: #e9d5ff; }
+.df-badge-outfordelivery, .df-badge-dispatched { background: #f3e8ff; color: #7c3aed; border-color: #e9d5ff; }
 .df-badge-delivered { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
 .df-badge-blocked { background: #ffe4e6; color: #be123c; border-color: #fecdd3; }
 .df-badge-available { background: #dcfce7; color: #15803d; border-color: #bbf7d0; }
@@ -296,7 +296,7 @@ body {
 
 [data-theme="dark"] .df-badge-pending { background: #422006; color: #fbbf24; border-color: #78350f; }
 [data-theme="dark"] .df-badge-assigned { background: #1e3a5f; color: #93c5fd; border-color: #1e40af; }
-[data-theme="dark"] .df-badge-outfordelivery { background: #3b0764; color: #c4b5fd; border-color: #5b21b6; }
+[data-theme="dark"] .df-badge-outfordelivery, [data-theme="dark"] .df-badge-dispatched { background: #3b0764; color: #c4b5fd; border-color: #5b21b6; }
 [data-theme="dark"] .df-badge-delivered { background: #052e16; color: #86efac; border-color: #166534; }
 
 /* Form inputs */

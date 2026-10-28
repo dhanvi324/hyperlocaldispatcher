@@ -97,10 +97,9 @@ const ShopTracking = () => {
         // Fetch active/dispatched orders for the shop
         const ordersRes = await getShopOwnerOrders({ status: "all" });
         if (ordersRes.data?.success && ordersRes.data?.orders) {
-          // Filter for only active delivery statuses: Accepted, OutForDelivery
-          // Also show Pending orders just in case, but keep focus on Accepted/OutForDelivery
+          // Filter for active delivery statuses: Assigned, Accepted, OutForDelivery, dispatched
           const activeOrders = ordersRes.data.orders.filter(o => 
-            ["Assigned", "Accepted", "OutForDelivery"].includes(o.status)
+            ["Assigned", "Accepted", "OutForDelivery", "dispatched", "Dispatched"].includes(o.status)
           );
           setOrders(activeOrders);
           
@@ -163,7 +162,7 @@ const ShopTracking = () => {
       toast.success(`Order status changed to: ${updatedOrder.status}`);
       
       // If completed or cancelled, remove from local list
-      if (["Delivered", "Cancelled"].includes(updatedOrder.status)) {
+      if (["Delivered", "delivered", "Cancelled", "cancelled"].includes(updatedOrder.status)) {
         setOrders(prev => prev.filter(o => o._id !== updatedOrder._id));
         if (selectedOrderId === updatedOrder._id) {
           setSelectedOrderId(null);
@@ -202,7 +201,7 @@ const ShopTracking = () => {
       markers.push([selectedOrder.deliveryLocation.lat, selectedOrder.deliveryLocation.lng]);
     }
     if (
-      ["Accepted", "OutForDelivery"].includes(selectedOrder?.status) &&
+      ["Accepted", "OutForDelivery", "dispatched", "Dispatched"].includes(selectedOrder?.status) &&
       selectedOrder?.riderLocation?.lat !== undefined &&
       selectedOrder?.riderLocation?.lng !== undefined &&
       selectedOrder?.riderLocation?.lat !== 0 &&
@@ -222,7 +221,7 @@ const ShopTracking = () => {
 
     const shopCoords = [shop.latitude, shop.longitude];
     const customerCoords = [selectedOrder.deliveryLocation.lat, selectedOrder.deliveryLocation.lng];
-    const hasRider = ["Accepted", "OutForDelivery"].includes(selectedOrder.status) &&
+    const hasRider = ["Accepted", "OutForDelivery", "dispatched", "Dispatched"].includes(selectedOrder.status) &&
       selectedOrder.riderLocation?.lat !== undefined &&
       selectedOrder.riderLocation?.lng !== undefined &&
       selectedOrder.riderLocation?.lat !== 0 &&
@@ -319,7 +318,7 @@ const ShopTracking = () => {
                           order.status === "Accepted" ? "bg-teal-50 text-teal-700 border-teal-200 animate-pulse" :
                           "bg-purple-50 text-purple-700 border-purple-200"
                         }`}>
-                          {order.status === "OutForDelivery" ? "Out For Delivery" : order.status}
+                          {order.status?.toLowerCase() === "dispatched" ? "Dispatched" : (order.status === "OutForDelivery" ? "Out For Delivery" : order.status)}
                         </span>
                       </div>
 
@@ -382,7 +381,7 @@ const ShopTracking = () => {
 
                 {/* Rider Live Marker */}
                 {selectedOrder &&
-                  ["Accepted", "OutForDelivery"].includes(selectedOrder.status) &&
+                  ["Accepted", "OutForDelivery", "dispatched", "Dispatched"].includes(selectedOrder.status) &&
                   selectedOrder.riderLocation?.lat !== undefined &&
                   selectedOrder.riderLocation?.lng !== undefined &&
                   selectedOrder.riderLocation?.lat !== 0 &&

@@ -85,7 +85,14 @@ router.post("/", verifyToken("admin"), async (req, res) => {
       shopId,
       approvalStatus: "Approved",
       isAvailable: true,
+    }).populate({
+      path: "userId",
+      match: { isBlocked: false, isActive: true },
+      select: "_id",
     });
+
+    const eligibleRiders = availableRiders.filter((r) => r.userId != null);
+    const riderUserIds = eligibleRiders.map((r) => r.userId._id || r.userId);
 
     const fullAddress = address
       ? `${address.building || ""}, ${address.area || ""}, ${address.city || ""}, ${address.state || ""} - ${address.pincode || ""}`
@@ -100,15 +107,27 @@ router.post("/", verifyToken("admin"), async (req, res) => {
       status: "Pending",
       deliveryLocation: { lat: latitude || 0, lng: longitude || 0 },
       deliveryAddress: { fullAddress, lat: latitude || 0, lng: longitude || 0 },
-      requestedRiders: availableRiders.map((r) => r.userId),
+      requestedRiders: riderUserIds,
+      rejectedRiders: [],
+      acceptedByRider: false,
+      assignedRider: null,
     });
+
+    const populatedOrder = await OrderTypeModel.findById(order._id)
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
+      .lean();
 
     const io = req.app.get("io");
     if (io) {
-      io.to(`shop:${shopId}`).emit("order:new-assigned", order);
+      io.to(`shop:${shopId}`).emit("order:new", populatedOrder);
+      io.to("admin-room").emit("order:new", populatedOrder);
+      riderUserIds.forEach((riderId) => {
+        io.to(`rider:${riderId}`).emit("order:new", populatedOrder);
+      });
+      io.emit("order:new", populatedOrder);
     }
 
-    res.status(201).json({ success: true, order, availableRiders });
+    res.status(201).json({ success: true, order: populatedOrder, availableRiders: eligibleRiders });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -243,10 +262,21 @@ router.put("/status/:id", verifyToken("admin", "shop_owner", "rider"), async (re
     }
 
     const prevStatus = order.status;
-    order.status = status;
-
+    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
     const isDelivered = status?.toLowerCase() === "delivered";
     const wasDelivered = prevStatus?.toLowerCase() === "delivered";
+
+    // Validate state transitions for rider
+    if (req.user.role === "rider") {
+      if (isDispatched && !["Accepted", "accepted", "Assigned", "assigned", "dispatched", "OutForDelivery"].includes(prevStatus)) {
+        return res.status(400).json({ message: `Cannot start delivery from status: ${prevStatus}` });
+      }
+      if (isDelivered && !["outfordelivery", "dispatched"].includes(prevStatus?.toLowerCase())) {
+        return res.status(400).json({ message: "Cannot mark order as delivered before starting delivery." });
+      }
+    }
+
+    order.status = status;
 
     // DELIVERED logic
     if (isDelivered && !wasDelivered) {
@@ -297,20 +327,27 @@ router.put("/status/:id", verifyToken("admin", "shop_owner", "rider"), async (re
       await RiderModel.findOneAndUpdate({ userId: riderId }, { $inc: { earnings: calculatedAmount } });
     }
 
-    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
     if (isDispatched && order.assignedRider) {
       await RiderModel.findOneAndUpdate({ userId: order.assignedRider }, { isAvailable: false });
     }
 
     await order.save();
 
+    const populatedOrder = await OrderTypeModel.findById(order._id)
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
+      .populate("assignedRider", "name phone email")
+      .lean();
+
     const io = req.app.get("io");
     if (io) {
-      io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", order);
-      io.emit("order:status-changed", order);
+      io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", populatedOrder);
+      if (order.assignedRider) {
+        io.to(`rider:${order.assignedRider._id || order.assignedRider}`).emit("order:status-changed", populatedOrder);
+      }
+      io.emit("order:status-changed", populatedOrder);
     }
 
-    res.json({ success: true, order });
+    res.json({ success: true, order: populatedOrder });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

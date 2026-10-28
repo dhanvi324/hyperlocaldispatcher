@@ -15,7 +15,7 @@ import {
 import { toast } from "react-hot-toast";
 
 const ShopOrders = () => {
-  const { orders, riders, fetchOrders, fetchRiders, assignRider, deleteOrder, loading } = useShopStore();
+  const { shop, fetchShop, orders, riders, fetchOrders, fetchRiders, assignRider, deleteOrder, loading } = useShopStore();
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -23,11 +23,18 @@ const ShopOrders = () => {
   const [selectedRiderId, setSelectedRiderId] = useState("");
 
   useEffect(() => {
+    if (!shop) fetchShop();
     fetchOrders({ status: statusFilter, search: searchQuery });
     fetchRiders();
 
     const socketUrl = import.meta.env.VITE_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
     const socket = io(socketUrl);
+
+    socket.on("connect", () => {
+      if (shop?._id) {
+        socket.emit("join-shop", shop._id);
+      }
+    });
 
     socket.on("order:status-changed", () => {
       fetchOrders({ status: statusFilter, search: searchQuery });
@@ -45,7 +52,7 @@ const ShopOrders = () => {
     return () => {
       socket.disconnect();
     };
-  }, [statusFilter, searchQuery]);
+  }, [shop?._id, statusFilter, searchQuery]);
 
   const handleAssignSubmit = async (orderId) => {
     if (!selectedRiderId) {
@@ -195,6 +202,15 @@ const ShopOrders = () => {
                             <p className="font-bold text-slate-700">{order.assignedRider.name}</p>
                             <p className="text-[9px] text-slate-400 font-semibold">{order.assignedRider.phone}</p>
                           </div>
+                        ) : order.status === "Pending" ? (
+                          <div>
+                            <span className="text-amber-700 font-bold text-[10px] block">
+                              {order.requestedRiders?.length > 0
+                                ? `Broadcasted to ${order.requestedRiders.length} rider${order.requestedRiders.length > 1 ? "s" : ""}`
+                                : "Awaiting eligible riders"}
+                            </span>
+                            <span className="text-[9px] text-slate-450 font-semibold">Auto-dispatched</span>
+                          </div>
                         ) : (
                           <span className="text-slate-400 text-[10px] font-semibold">Unassigned</span>
                         )}
@@ -203,9 +219,10 @@ const ShopOrders = () => {
                         {order.status === "Pending" && (
                           <button
                             onClick={() => setAssigningOrderId(order._id)}
-                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold uppercase transition-all cursor-pointer"
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-[9px] font-bold uppercase transition-all cursor-pointer"
+                            title="Optional manual rider override"
                           >
-                            Assign
+                            Manual Assign
                           </button>
                         )}
                         {["Pending", "Assigned", "Accepted"].includes(order.status) && (

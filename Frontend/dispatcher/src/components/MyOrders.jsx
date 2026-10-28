@@ -1,4 +1,13 @@
 import React, { useEffect, useState } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  useMap
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import API from "../api";
 import useTrackingStore from "../store/trackingstore";
 import useAuthStore from "../store/authstore";
@@ -15,14 +24,53 @@ import {
   Package, 
   ChevronRight,
   Compass,
-  AlertCircle
+  AlertCircle,
+  X,
+  Navigation,
+  Loader2
 } from "lucide-react";
 import { toast } from "react-hot-toast";
+
+// Leaflet icon setup
+const customerIcon = new L.Icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const shopIcon = new L.Icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const FitMapBounds = ({ markers }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (markers && markers.length > 0) {
+      const validCoords = markers.filter((m) => m && m[0] && m[1] && m[0] !== 0 && m[1] !== 0);
+      if (validCoords.length > 1) {
+        const bounds = L.latLngBounds(validCoords);
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+      } else if (validCoords.length === 1) {
+        map.setView(validCoords[0], 15);
+      }
+    }
+  }, [markers, map]);
+  return null;
+};
 
 const MyOrders = () => {
   const user = useAuthStore((state) => state.user);
   const [orders, setOrders] = useState([]);
   const [availableOrders, setAvailableOrders] = useState([]);
+  const [viewLocationOrder, setViewLocationOrder] = useState(null);
 
   const startTracking = useTrackingStore((state) => state.startTracking);
   const stopTracking = useTrackingStore((state) => state.stopTracking);
@@ -308,6 +356,12 @@ const MyOrders = () => {
                       <CheckCircle className="w-3.5 h-3.5" /> Mark as Delivered
                     </button>
                   )}
+                  <button
+                    onClick={() => setViewLocationOrder(order)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded-xl text-xs uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <MapPin className="w-3.5 h-3.5" /> View Pinned Location
+                  </button>
                   <a
                     href={`https://www.google.com/maps/search/?api=1&query=${order.deliveryLocation?.lat || 0},${order.deliveryLocation?.lng || 0}`}
                     target="_blank"
@@ -322,6 +376,105 @@ const MyOrders = () => {
           )}
         </div>
       </div>
+
+      {/* Pinned Location Leaflet Modal */}
+      {viewLocationOrder && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl max-w-3xl w-full border border-slate-100 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-base">Customer Pinned Delivery Location</h3>
+                  <p className="text-slate-400 text-xs font-semibold">
+                    Pinned Coordinates: {viewLocationOrder.deliveryLocation?.lat?.toFixed(5)}, {viewLocationOrder.deliveryLocation?.lng?.toFixed(5)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setViewLocationOrder(null)}
+                className="p-2 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-full transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="relative w-full h-[380px] bg-slate-100">
+              {viewLocationOrder.deliveryLocation?.lat && viewLocationOrder.deliveryLocation?.lng ? (
+                <MapContainer
+                  center={[viewLocationOrder.deliveryLocation.lat, viewLocationOrder.deliveryLocation.lng]}
+                  zoom={15}
+                  scrollWheelZoom={true}
+                  className="w-full h-full z-0"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <Marker
+                    position={[viewLocationOrder.deliveryLocation.lat, viewLocationOrder.deliveryLocation.lng]}
+                    icon={customerIcon}
+                  >
+                    <Popup>
+                      <div className="p-1 space-y-1 text-xs">
+                        <strong className="block text-red-600 font-bold">📍 Customer Destination</strong>
+                        <p className="font-semibold text-slate-800">{viewLocationOrder.customerName}</p>
+                        <p className="text-[11px] text-slate-650">{viewLocationOrder.phone}</p>
+                        <p className="text-[10px] text-slate-500">
+                          {viewLocationOrder.address?.building}, {viewLocationOrder.address?.area}
+                        </p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                  {viewLocationOrder.shopId?.latitude && viewLocationOrder.shopId?.longitude && (
+                    <Marker
+                      position={[viewLocationOrder.shopId.latitude, viewLocationOrder.shopId.longitude]}
+                      icon={shopIcon}
+                    >
+                      <Popup>
+                        <div className="p-1 space-y-1 text-xs">
+                          <strong className="block text-blue-600 font-bold">🏪 Pickup Shop</strong>
+                          <p className="font-semibold text-slate-800">{viewLocationOrder.shopId.shopName}</p>
+                          <p className="text-[10px] text-slate-500">{viewLocationOrder.shopId.address}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                  <FitMapBounds
+                    markers={[
+                      [viewLocationOrder.deliveryLocation.lat, viewLocationOrder.deliveryLocation.lng],
+                      viewLocationOrder.shopId?.latitude && viewLocationOrder.shopId?.longitude
+                        ? [viewLocationOrder.shopId.latitude, viewLocationOrder.shopId.longitude]
+                        : null
+                    ]}
+                  />
+                </MapContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-slate-400 text-xs font-semibold">
+                  No GPS coordinates available.
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-slate-100 bg-white flex flex-col sm:flex-row justify-between gap-4 items-start sm:items-center">
+              <div className="text-xs text-slate-700">
+                <span className="text-[10px] font-bold text-slate-450 uppercase block">Delivery Address</span>
+                <p className="font-semibold text-slate-800 mt-0.5">
+                  {viewLocationOrder.address?.building}, {viewLocationOrder.address?.area}, {viewLocationOrder.address?.city}
+                </p>
+              </div>
+              <button
+                onClick={() => setViewLocationOrder(null)}
+                className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold px-4 py-2 rounded-xl text-xs transition-all cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

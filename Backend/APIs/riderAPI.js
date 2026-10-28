@@ -34,10 +34,13 @@ riderrouter.get("/available-orders", verifyToken("rider"), async (req, res) => {
 
     const orders = await OrderTypeModel.find({
       shopId: riderProfile.shopId,  // Only orders from rider's shop
-      requestedRiders: { $elemMatch: { $eq: req.user.userId } },
+      requestedRiders: req.user.userId,
+      rejectedRiders: { $ne: req.user.userId },
       acceptedByRider: false,
       status: "Pending",
-    });
+    })
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
+      .sort({ createdAt: -1 });
 
     res.json(orders);
   } catch (err) {
@@ -50,10 +53,23 @@ riderrouter.get("/available-orders", verifyToken("rider"), async (req, res) => {
 // =============================================
 riderrouter.get("/my-orders", verifyToken("rider"), async (req, res) => {
   try {
-    const orders = await OrderTypeModel.find({
-      assignedRider: req.user.userId,
-      status: { $in: ["Assigned", "Accepted", "OutForDelivery"] },
-    }).populate("shopId", "shopName address");
+    const { status } = req.query;
+    let query = { assignedRider: req.user.userId };
+
+    if (status === "delivered") {
+      query.status = { $in: ["Delivered", "delivered"] };
+    } else if (status === "active") {
+      query.status = { $in: ["Assigned", "Accepted", "OutForDelivery", "dispatched", "Dispatched"] };
+    } else if (status && status !== "all") {
+      query.status = status;
+    } else {
+      // Default: active orders
+      query.status = { $in: ["Assigned", "Accepted", "OutForDelivery", "dispatched", "Dispatched"] };
+    }
+
+    const orders = await OrderTypeModel.find(query)
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
+      .sort({ updatedAt: -1, createdAt: -1 });
 
     res.json(orders);
   } catch (err) {
@@ -102,17 +118,20 @@ riderrouter.put("/respond-order/:orderId", verifyToken("rider"), async (req, res
       // Mark rider busy
       await RiderModel.findOneAndUpdate({ userId: req.user.userId }, { isAvailable: false });
 
-      // Populate shop for socket
+      // Populate shop and rider for socket
       const populatedOrder = await OrderTypeModel.findById(order._id)
-        .populate("shopId", "shopName address latitude longitude")
+        .populate("shopId", "shopName shopCode address latitude longitude phone")
+        .populate("assignedRider", "name email phone")
         .lean();
 
       const io = req.app.get("io");
       if (io) {
-        // Notify shop room, admin room, and all clients of assignment
+        // Notify shop room, admin room, rider personal room, and all clients
         io.to(`shop:${order.shopId}`).to("admin-room").emit("order:status-changed", populatedOrder);
+        io.to(`rider:${req.user.userId}`).emit("order:status-changed", populatedOrder);
         io.emit("order:status-changed", populatedOrder);
-        // Tell all other requestedRiders to remove this order
+
+        // Tell all other requestedRiders to remove this order from available list
         io.to(`shop:${order.shopId}`).to("admin-room").emit("order:accepted", { orderId: order._id, acceptedBy: req.user.userId });
         io.emit("order:accepted", { orderId: order._id, acceptedBy: req.user.userId });
       }
@@ -124,10 +143,12 @@ riderrouter.put("/respond-order/:orderId", verifyToken("rider"), async (req, res
       if (!order) return res.status(404).json({ message: "Order not found" });
       if (order.acceptedByRider) return res.status(400).json({ message: "Order already accepted" });
 
-      order.requestedRiders = order.requestedRiders.filter(
-        (id) => id.toString() !== req.user.userId
-      );
-      await order.save();
+      // Atomically remove from requestedRiders and add to rejectedRiders
+      await OrderTypeModel.findByIdAndUpdate(req.params.orderId, {
+        $pull: { requestedRiders: req.user.userId },
+        $addToSet: { rejectedRiders: req.user.userId },
+      });
+
       return res.json({ success: true, message: "Order rejected" });
     } else {
       return res.status(400).json({ message: "Invalid action" });
@@ -156,10 +177,20 @@ riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res
     }
 
     const prevStatus = order.status;
-    order.status = status;
-
+    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
     const isDelivered = status?.toLowerCase() === "delivered";
     const wasDelivered = prevStatus?.toLowerCase() === "delivered";
+
+    // Validate state transitions
+    if (isDispatched && !["Accepted", "accepted", "Assigned", "assigned", "dispatched", "OutForDelivery"].includes(prevStatus)) {
+      return res.status(400).json({ message: `Cannot start delivery from status: ${prevStatus}` });
+    }
+
+    if (isDelivered && !["outfordelivery", "dispatched"].includes(prevStatus?.toLowerCase())) {
+      return res.status(400).json({ message: "Cannot mark order as delivered before starting delivery." });
+    }
+
+    order.status = status;
 
     if (isDelivered && !wasDelivered) {
       const riderId = req.user.userId;
@@ -220,17 +251,16 @@ riderrouter.put("/update-status/:orderId", verifyToken("rider"), async (req, res
       );
     }
 
-    const isDispatched = ["outfordelivery", "dispatched"].includes(status?.toLowerCase());
     if (isDispatched && order.assignedRider) {
       await RiderModel.findOneAndUpdate({ userId: order.assignedRider }, { isAvailable: false });
     }
 
     await order.save();
 
-    // Populate shop for full context in socket event
+    // Populate shop and assignedRider for full context in socket event
     const populatedOrder = await OrderTypeModel.findById(order._id)
-      .populate("shopId", "shopName address latitude longitude")
-      .populate("assignedRider", "name phone")
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
+      .populate("assignedRider", "name phone email")
       .lean();
 
     const io = req.app.get("io");

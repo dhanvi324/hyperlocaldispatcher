@@ -217,7 +217,7 @@ const CreateOrder = () => {
 
       await API.post(url, payload);
 
-      toast.success("Order outfordelivery to nearby riders!");
+      toast.success("Order created and broadcasted to available riders!");
 
       // Reset form
       setFormData({

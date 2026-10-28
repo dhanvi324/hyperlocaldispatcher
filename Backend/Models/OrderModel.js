@@ -94,6 +94,16 @@ const orderSchema = new mongoose.Schema(
       },
     ],
 
+    // =========================
+    // REJECTED RIDERS (riders who declined this order)
+    // =========================
+    rejectedRiders: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
+
     acceptedByRider: {
       type: Boolean,
       default: false,

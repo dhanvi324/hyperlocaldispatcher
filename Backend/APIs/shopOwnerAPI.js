@@ -268,14 +268,15 @@ shopOwnerRouter.post("/orders", verifyToken("shop_owner"), async (req, res) => {
       return res.status(400).json({ message: "Customer location (latitude and longitude) is required. Please pin the location on the map." });
     }
 
-    // Broadcast to ALL approved and eligible riders in the shop
+    // Broadcast to ALL approved and eligible riders linked to this shop
     const allApprovedRiders = await RiderModel.find({
       shopId: shop._id,
       approvalStatus: "Approved",
+      isAvailable: true,
     }).populate({
       path: "userId",
       match: { isBlocked: false, isActive: true },
-      select: "_id",
+      select: "_id name phone email",
     });
 
     const eligibleRiders = allApprovedRiders.filter((r) => r.userId != null);
@@ -293,11 +294,14 @@ shopOwnerRouter.post("/orders", verifyToken("shop_owner"), async (req, res) => {
       deliveryLocation: { lat: latitude, lng: longitude },
       deliveryAddress: { fullAddress, lat: latitude, lng: longitude },
       requestedRiders: riderUserIds,
+      rejectedRiders: [],
+      acceptedByRider: false,
+      assignedRider: null,
     });
 
-    // Populate assignedRider for socket payload
+    // Populate shopId for socket payload
     const populatedOrder = await OrderTypeModel.findById(order._id)
-      .populate("shopId", "shopName address latitude longitude")
+      .populate("shopId", "shopName shopCode address latitude longitude phone")
       .lean();
 
     const io = req.app.get("io");
@@ -311,6 +315,8 @@ shopOwnerRouter.post("/orders", verifyToken("shop_owner"), async (req, res) => {
       riderUserIds.forEach((riderId) => {
         io.to(`rider:${riderId}`).emit("order:new", populatedOrder);
       });
+      // Global broadcast for real-time consistency
+      io.emit("order:new", populatedOrder);
     }
 
     res.status(201).json({ success: true, order: populatedOrder, broadcastedTo: riderUserIds.length });

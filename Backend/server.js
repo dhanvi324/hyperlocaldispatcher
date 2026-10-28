@@ -29,13 +29,71 @@ const io = new Server(httpServer, {
 // ✅ Attach Socket.io instance to app context
 app.set("io", io);
 
+// ✅ CORS origin validator
+const isOriginAllowed = (origin) => {
+  if (!origin) return true; // Allow non-browser requests (Postman, curl, server-to-server)
+
+  const allowedExact = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://hyperlocaldispatcher.vercel.app",
+    "https://hyper-local-delivery.vercel.app",
+    "https://hyperlocal-delivery.vercel.app",
+  ];
+
+  if (process.env.FRONTEND_URL) allowedExact.push(process.env.FRONTEND_URL.replace(/\/$/, ""));
+  if (process.env.CLIENT_URL) allowedExact.push(process.env.CLIENT_URL.replace(/\/$/, ""));
+
+  if (allowedExact.includes(origin)) return true;
+
+  // Allow localhost on any port for local development
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+    return true;
+  }
+
+  // Strict hostname check for legitimate Vercel preview deployments
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "https:") {
+      const hostname = url.hostname.toLowerCase();
+      if (hostname.endsWith(".vercel.app")) {
+        const allowedPatterns = [
+          /^(hyperlocaldispatcher|hyper-local-delivery|hyperlocal-delivery)(-[a-z0-9-]+)?\.vercel\.app$/i,
+        ];
+
+        if (process.env.FRONTEND_URL) {
+          try {
+            const envHost = new URL(process.env.FRONTEND_URL).hostname.toLowerCase();
+            if (envHost.endsWith(".vercel.app")) {
+              const baseName = envHost.replace(/\.vercel\.app$/, "");
+              allowedPatterns.push(new RegExp(`^${baseName}(-[a-z0-9-]+)?\\.vercel\\.app$`, "i"));
+            }
+          } catch {}
+        }
+
+        return allowedPatterns.some((pattern) => pattern.test(hostname));
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+};
+
 // ✅ CORS middleware
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://hyperlocaldispatcher.vercel.app"
-  ],
-  credentials: true
+  origin: (origin, callback) => {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  optionsSuccessStatus: 200,
 }));
 
 // ✅ body parser
